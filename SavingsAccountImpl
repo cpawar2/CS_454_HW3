@@ -1,0 +1,104 @@
+package org.example.hw3;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class SavingsAccountImpl {
+    private int balance;
+    private boolean preferredWithdrawalWaiting;
+    private final Lock lock = new ReentrantLock();
+    private final Condition sufficientFunds = lock.newCondition();
+    private final Condition noPreferredWithdrawal = lock.newCondition();
+
+    public SavingsAccountImpl() {
+        balance = 0;
+        preferredWithdrawalWaiting = false;
+    }
+
+    public void deposit(int amount) {
+        lock.lock();
+        try {
+            balance += amount;
+            sufficientFunds.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void withdraw(int amount, boolean isPreferred) throws InterruptedException {
+        lock.lock();
+        try {
+            while(preferredWithdrawalWaiting){
+                noPreferredWithdrawal.await();
+            }
+            while (balance < amount || (isPreferred && preferredWithdrawalWaiting)) {
+                if (isPreferred) {
+                    noPreferredWithdrawal.await();
+                } else {
+                    sufficientFunds.await();
+                }
+            }
+            balance -= amount;
+            if (isPreferred) {
+                preferredWithdrawalWaiting = false;
+                noPreferredWithdrawal.signalAll();
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void blockUntilBalance(int amount) throws InterruptedException {
+        lock.lock();
+        try {
+            while (balance < amount) {
+                sufficientFunds.await();
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void transfer(int amount, SavingsAccount reserve) throws InterruptedException {
+        lock.lock();
+        try {
+            while (balance < amount) {
+                sufficientFunds.await();
+            }
+            reserve.deposit(amount);
+            balance -= amount;
+            sufficientFunds.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public int getBalance() {
+        lock.lock();
+        try {
+            return balance;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void startPreferredWithdrawal() {
+        lock.lock();
+        try {
+            preferredWithdrawalWaiting = true;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void endPreferredWithdrawal() {
+        lock.lock();
+        try {
+            preferredWithdrawalWaiting = false;
+            noPreferredWithdrawal.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+
